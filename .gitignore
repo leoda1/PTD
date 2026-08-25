@@ -1,0 +1,13 @@
+# Generated artifacts: TSDB, Grafana runtime dirs, rendered dashboards
+build/
+
+# Editors / tooling
+.claude/
+.vscode/
+__pycache__/
+.DS_Store
+
+# Keep log/ itself (README, collection scripts) but not the raw data
+log/*.txt
+log/*.log
+log/*.prom
