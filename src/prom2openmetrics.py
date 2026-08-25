@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Convert snapshot logs captured by metrics.sh into an OpenMetrics file promtool can
-bulk-load.
+"""Convert captured metrics snapshots into an OpenMetrics file promtool can load.
 
-Usage:
-    python3 prom2openmetrics.py prefill.prom.log=prefill decode.prom.log=decode -o om.txt
+Each snapshot in the log starts with a header line written by the capture loop:
 
-Each argument is <file>=<instance>; the instance is injected as a label so prefill and
-decode samples stay distinguishable.
+    # ==== 1787122159 2026-08-19T06:49:19+00:00 ====
+
+Everything until the next header is one scrape. Samples get an `instance` label
+so prefill and decode stay distinguishable, and are emitted sorted by timestamp
+because promtool requires them non-decreasing.
 """
+
 import re
 import sys
-import argparse
 
-# Snapshot separator line: # ==== 1787122159 2026-08-19T06:49:19+00:00 ====
-HDR = re.compile(r"^#\s*====\s*(\d+)\s")
-
-# A valid Prometheus sample line: name{labels} value  /  name value
+HEADER = re.compile(r"^#\s*====\s*(\d+)\s")
+TAIL_TS = re.compile(r"\s(\d{10})\s*$")
 SAMPLE = re.compile(
     r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)"
     r"(?P<labels>\{.*\})?"
@@ -23,72 +22,74 @@ SAMPLE = re.compile(
 )
 
 
-def inject(labels: str | None, instance: str) -> str:
-    """Inject instance=... into the label set."""
-    add = f'instance="{instance}"'
+def _with_instance(labels: str | None, instance: str) -> str:
+    tag = f'instance="{instance}"'
     if not labels or labels == "{}":
-        return "{" + add + "}"
-    return labels[:-1] + "," + add + "}"
+        return "{" + tag + "}"
+    return labels[:-1] + "," + tag + "}"
 
 
-def parse_file(path: str, instance: str, out: list) -> tuple[int, int, int]:
+def _parse(path, instance: str, rows: dict) -> None:
     ts = None
-    n_sample = n_snap = n_junk = 0
-    with open(path, "r", errors="replace") as fh:
+    samples = snapshots = junk = 0
+    with open(path, errors="replace") as fh:
         for line in fh:
-            line = line.rstrip("\n").rstrip("\r")
-            m = HDR.match(line)
-            if m:
-                ts = int(m.group(1))
-                n_snap += 1
-                continue
-            if not line or line.startswith("#"):
-                continue          # drop HELP/TYPE lines
-            if ts is None:
-                continue
-            m = SAMPLE.match(line)
-            if not m:
-                n_junk += 1       # squid HTML, curl error pages, etc.
-                continue
-            out.append((
-                ts,
-                m.group("name") + inject(m.group("labels"), instance)
-                + " " + m.group("value") + " " + str(ts),
-            ))
-            n_sample += 1
-    return n_snap, n_sample, n_junk
+            line = line.rstrip("\r\n")
+            header = HEADER.match(line)
+            if header:
+                ts = int(header.group(1))
+                snapshots += 1
+            elif not line or line.startswith("#") or ts is None:
+                continue                      # HELP/TYPE lines and pre-header noise
+            elif m := SAMPLE.match(line):
+                # Keyed by (series, ts): a stray second capture loop against the
+                # same port yields duplicate timestamps, which promtool rejects.
+                # Last value wins, same as Prometheus would do.
+                series = m.group("name") + _with_instance(m.group("labels"), instance)
+                rows[(series, ts)] = m.group("value")
+                samples += 1
+            else:
+                junk += 1                     # 404 pages, proxy errors, curl output
+    print(f"  {path.name:24s} instance={instance:8s} "
+          f"snapshots={snapshots:5d} samples={samples:8d} junk={junk}")
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("inputs", nargs="+", help="<file>=<instance>")
-    ap.add_argument("-o", "--output", default="om.txt")
-    args = ap.parse_args()
+def bounds(path) -> tuple[int, int]:
+    """First and last timestamp of an existing OpenMetrics file, in ms."""
+    stamps = [int(m.group(1)) for line in open(path, errors="replace")
+              if not line.startswith("#") and (m := TAIL_TS.search(line))]
+    if not stamps:
+        sys.exit(f"{path} has no timestamped samples")
+    return min(stamps) * 1000, max(stamps) * 1000
 
-    rows: list = []
-    for spec in args.inputs:
-        if "=" not in spec:
-            sys.exit(f"expected <file>=<instance>, got: {spec}")
-        path, instance = spec.rsplit("=", 1)
-        snap, sample, junk = parse_file(path, instance, rows)
-        print(f"{path:24s} instance={instance:8s} "
-              f"snapshots={snap:6d} samples={sample:8d} junk_dropped={junk}")
 
-    # promtool requires non-decreasing timestamps; interleaved files must be re-sorted
-    rows.sort(key=lambda r: r[0])
+def convert(inputs, output) -> tuple[int, int]:
+    """Write `inputs` [(path, instance), ...] to `output`. Returns (start, end) ms."""
+    rows: dict = {}
+    for path, instance in inputs:
+        _parse(path, instance, rows)
+    if not rows:
+        sys.exit("no samples parsed - are the logs full of 404s? "
+                 "The server needs --enable-metrics.")
 
-    with open(args.output, "w") as fh:
-        for _, line in rows:
-            fh.write(line + "\n")
+    # promtool requires timestamps to be non-decreasing.
+    ordered = sorted(rows.items(), key=lambda kv: kv[0][1])
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with open(output, "w") as fh:
+        for (series, ts), value in ordered:
+            fh.write(f"{series} {value} {ts}\n")
         fh.write("# EOF\n")
 
-    if rows:
-        print(f"\n-> {args.output}  {len(rows)} samples  "
-              f"span {rows[0][0]} ~ {rows[-1][0]} "
-              f"({(rows[-1][0] - rows[0][0]) / 60:.1f} min)")
-    else:
-        print("\nno samples parsed - check whether the logs are all proxy error pages")
+    start, end = ordered[0][0][1], ordered[-1][0][1]
+    print(f"  -> {output.name}  {len(ordered)} samples  "
+          f"spanning {(end - start) / 60:.1f} min")
+    return start * 1000, end * 1000
 
 
 if __name__ == "__main__":
-    main()
+    from pathlib import Path
+    if len(sys.argv) != 4:
+        sys.exit("usage: prom2openmetrics.py <prefill.log> <decode.log> <out.txt>")
+    prefill, decode, out = (Path(a) for a in sys.argv[1:])
+    convert([(prefill, "prefill"), (decode, "decode")], out)
