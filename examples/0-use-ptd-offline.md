@@ -26,7 +26,7 @@ Run the workload, then kill both loops.
 ```bash
 cp prefill.prom.log decode.prom.log log/
 cd dashboard/ptd
-PREFILL=log/prefill.prom.log DECODE=log/decode.prom.log DASH=ptd-sglang docker compose up -d
+PREFILL="$(realpath ../../log/prefill.prom.log)" DECODE="$(realpath ../../log/decode.prom.log)" DASH=ptd-sglang docker compose up -d
 docker compose logs prepare
 ```
 
@@ -36,7 +36,7 @@ the captured window.
 The conversion lands in `build/om.txt`, so a later replay can skip it:
 
 ```bash
-OPENMETRICS=build/om.txt DASH=ptd-sglang docker compose up -d
+OPENMETRICS="$(realpath ../../build/om.txt)" DASH=ptd-sglang docker compose up -d
 ```
 
 Or convert the two logs yourself, with nothing but Python 3:

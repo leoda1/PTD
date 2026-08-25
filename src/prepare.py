@@ -6,8 +6,8 @@ time range to the data. Building the TSDB from that file is a separate compose s
 since promtool ships in the Prometheus image and this one only needs Python.
 Online (TARGETS): write a scrape config. Nothing to convert.
 
-docker-compose.yml runs this first; it writes into build/. All paths are relative to
-the repo root, which is mounted at /ptd in the container.
+docker-compose.yml runs this first; it writes into build/. Log inputs are absolute
+paths. The default captures live under /ptd/log because the repo is mounted at /ptd.
 """
 
 import os
@@ -26,6 +26,17 @@ DASHBOARDS = {
     "ptd-vllm":   "dashboard/ptd/vllm-ptd.json",
     "ptd-sglang": "dashboard/ptd/sglang-ptd.json",
 }
+
+
+def absolute_log_path(name: str, default: str | None = None) -> Path | None:
+    """Return an absolute log path, rejecting ambiguous relative input."""
+    value = os.environ.get(name, default)
+    if not value:
+        return None
+    path = Path(value)
+    if not path.is_absolute():
+        sys.exit(f"{name} must be an absolute path, got: {value!r}")
+    return path
 
 
 def main() -> None:
@@ -55,16 +66,16 @@ def main() -> None:
     else:
         om = BUILD / "om.txt"
         om.parent.mkdir(parents=True, exist_ok=True)
-        if ready := os.environ.get("OPENMETRICS"):
-            src = ROOT / ready
+        if src := absolute_log_path("OPENMETRICS"):
             if not src.is_file():
                 sys.exit(f"no such file: {src}")
             shutil.copyfile(src, om)
             time_range = bounds(src)
-            print(f"using {ready}")
+            print(f"using {src}")
         else:
-            prefill = ROOT / os.environ.get("PREFILL", "log/prefill.prom.log")
-            decode = ROOT / os.environ.get("DECODE", "log/decode.prom.log")
+            prefill = absolute_log_path("PREFILL", "/ptd/log/prefill.prom.log")
+            decode = absolute_log_path("DECODE", "/ptd/log/decode.prom.log")
+            assert prefill is not None and decode is not None
             for f in (prefill, decode):
                 if not f.is_file():
                     sys.exit(f"no such file: {f}\n"

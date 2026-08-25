@@ -8,12 +8,12 @@ Replay snapshots captured earlier. Nothing is scraped, works anywhere including 
 
 ```bash
 cd dashboard/ptd
-PREFILL=log/prefill.prom.log DECODE=log/decode.prom.log DASH=ptd-vllm docker compose up -d   # PTD vLLM dashboard
-PREFILL=log/prefill.prom.log DECODE=log/decode.prom.log DASH=ptd-sglang docker compose up -d # PTD SGLang dashboard
-OPENMETRICS=log/om-0824.txt DASH=ptd-vllm docker compose up -d                               # already-converted input
+PREFILL="$(realpath ../../log/prefill.prom.log)" DECODE="$(realpath ../../log/decode.prom.log)" DASH=ptd-vllm docker compose up -d
+PREFILL="$(realpath ../../log/prefill.prom.log)" DECODE="$(realpath ../../log/decode.prom.log)" DASH=ptd-sglang docker compose up -d
+OPENMETRICS="$(realpath ../../log/om-0824.txt)" DASH=ptd-vllm docker compose up -d
 ```
 
-Prometheus is on <http://localhost:9090> and grafana is on <http://localgihost:3000>
+Prometheus is on <http://localhost:9090> and grafana is on <http://localhost:3000>
 
 ## Online
 

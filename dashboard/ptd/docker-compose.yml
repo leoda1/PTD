@@ -2,16 +2,16 @@
 #
 # Offline -- replay captured snapshot logs. Works anywhere, including macOS.
 #   cd dashboard/ptd
-#   PREFILL=log/prefill.prom.log DECODE=log/decode.prom.log DASH=ptd-vllm docker compose up -d
-#   OPENMETRICS=log/om-0824.txt DASH=ptd-vllm docker compose up -d
+#   PREFILL="$(realpath ../../log/prefill.prom.log)" DECODE="$(realpath ../../log/decode.prom.log)" DASH=ptd-vllm docker compose up -d
+#   OPENMETRICS="$(realpath ../../log/om-0824.txt)" DASH=ptd-vllm docker compose up -d
 #
 # Online -- scrape running servers. Linux only: network_mode host does not reach
 # the host on Docker Desktop for Mac.
 #   DASH=ptd-sglang TARGETS=127.0.0.1:8000,127.0.0.1:8001 docker compose --profile online up -d
 #
-# `prepare` writes build/ and exits; the rest waits for it. Log paths are relative to
-# the repo root, which is mounted at /ptd. Paths in this file are relative to the file
-# itself, hence ../.. for the repo root.
+# `prepare` writes build/ and exits; the rest waits for it. User-supplied log paths
+# must be absolute. Each source is mounted at the same absolute path in the container.
+# Paths owned by this Compose file are relative to it, hence ../.. for the repo root.
 #
 # Use `up -d` to stay out of the container logs, then `docker compose logs -f grafana`
 # if you need them. `docker compose logs urls` reprints the addresses.
@@ -26,10 +26,31 @@ services:
     command: python3 src/prepare.py
     volumes:
       - ../..:/ptd
+      # Keep host and container filenames identical, so all user-supplied log
+      # variables have one unambiguous absolute-path meaning. README.md is only
+      # an unused, guaranteed-to-exist fallback while OPENMETRICS is unset.
+      - type: bind
+        source: "${OPENMETRICS:-../../README.md}"
+        target: "${OPENMETRICS:-/tmp/ptd-unused-openmetrics}"
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${PREFILL:-../../log/prefill.prom.log}"
+        target: "${PREFILL:-/ptd/log/prefill.prom.log}"
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${DECODE:-../../log/decode.prom.log}"
+        target: "${DECODE:-/ptd/log/decode.prom.log}"
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       DASH: ${DASH:-ptd-vllm}
-      PREFILL: ${PREFILL:-log/prefill.prom.log}
-      DECODE: ${DECODE:-log/decode.prom.log}
+      PREFILL: ${PREFILL:-/ptd/log/prefill.prom.log}
+      DECODE: ${DECODE:-/ptd/log/decode.prom.log}
       # Set this to replay an already-converted file; PREFILL/DECODE are ignored.
       OPENMETRICS: ${OPENMETRICS:-}
       KV_BYTES: ${KV_BYTES:-167772160}
