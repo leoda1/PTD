@@ -1,0 +1,133 @@
+# PTD: Prometheus + Grafana with the PTD dashboards. Nothing is built.
+#
+# Offline -- replay captured snapshot logs. Works anywhere, including macOS.
+#   cd dashboard/ptd
+#   PREFILL=log/prefill.prom.log DECODE=log/decode.prom.log DASH=ptd-vllm docker compose up -d
+#   OPENMETRICS=log/om-0824.txt DASH=ptd-vllm docker compose up -d
+#
+# Online -- scrape running servers. Linux only: network_mode host does not reach
+# the host on Docker Desktop for Mac.
+#   DASH=ptd-sglang TARGETS=127.0.0.1:8000,127.0.0.1:8001 docker compose --profile online up -d
+#
+# `prepare` writes build/ and exits; the rest waits for it. Log paths are relative to
+# the repo root, which is mounted at /ptd. Paths in this file are relative to the file
+# itself, hence ../.. for the repo root.
+#
+# Use `up -d` to stay out of the container logs, then `docker compose logs -f grafana`
+# if you need them. `docker compose logs urls` reprints the addresses.
+
+name: ptd
+
+services:
+  # Convert the two logs to OpenMetrics and render the dashboard.
+  prepare:
+    image: python:3.12-slim
+    working_dir: /ptd
+    command: python3 src/prepare.py
+    volumes:
+      - ../..:/ptd
+    environment:
+      DASH: ${DASH:-ptd-vllm}
+      PREFILL: ${PREFILL:-log/prefill.prom.log}
+      DECODE: ${DECODE:-log/decode.prom.log}
+      # Set this to replay an already-converted file; PREFILL/DECODE are ignored.
+      OPENMETRICS: ${OPENMETRICS:-}
+      KV_BYTES: ${KV_BYTES:-167772160}
+      GF_PORT: ${GF_PORT:-3000}
+      PROM_PORT: ${PROM_PORT:-9090}
+
+  # Turn that OpenMetrics file into TSDB blocks. promtool ships in this image.
+  tsdb:
+    image: prom/prometheus:latest
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    entrypoint: promtool
+    command: tsdb create-blocks-from openmetrics /build/om.txt /build/tsdb
+    volumes:
+      - ../../build:/build
+
+  prometheus:
+    image: prom/prometheus:latest
+    depends_on:
+      tsdb:
+        condition: service_completed_successfully
+    ports:
+      - "${PROM_PORT:-9090}:9090"
+    volumes:
+      - ./offline.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../build/tsdb:/prometheus
+    # Retention must outlive the replayed data: the default 15 days would drop
+    # every block the moment Prometheus starts.
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=10y"
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    ports:
+      - "${GF_PORT:-3000}:3000"
+    volumes:
+      - ../../build/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../build/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment: &grafana_env
+      # Land on the dashboard instead of Grafana's welcome page.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/${DASH:-ptd-vllm}.json
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 1s
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DATE_FORMATS_DEFAULT_TIMEZONE: browser
+
+  # --- online (--profile online) ------------------------------------------
+  prepare-online:
+    profiles: [online]
+    image: python:3.12-slim
+    working_dir: /ptd
+    command: python3 src/prepare.py
+    volumes:
+      - ../..:/ptd
+    environment:
+      DASH: ${DASH:-ptd-vllm}
+      TARGETS: ${TARGETS:-}
+      KV_BYTES: ${KV_BYTES:-167772160}
+      GF_PORT: ${GF_PORT:-3000}
+      PROM_PORT: ${PROM_PORT:-9090}
+
+  prometheus-online:
+    profiles: [online]
+    image: prom/prometheus:latest
+    network_mode: host
+    depends_on:
+      prepare-online:
+        condition: service_completed_successfully
+    volumes:
+      - ../../build:/etc/ptd:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/ptd/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.listen-address=:${PROM_PORT:-9090}"
+
+  grafana-online:
+    profiles: [online]
+    image: grafana/grafana:latest
+    network_mode: host
+    depends_on:
+      - prometheus-online
+    volumes:
+      - ../../build/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../build/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    environment:
+      <<: *grafana_env
+      GF_SERVER_HTTP_PORT: ${GF_PORT:-3000}
+
+volumes:
+  prometheus_data:
+  grafana_data:

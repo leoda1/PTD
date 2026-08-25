@@ -1,115 +1,81 @@
 #!/usr/bin/env python3
-"""Render a dashboard template into a file Grafana can load directly.
+"""Adapt a dashboard template so it works against the PTD stack.
 
-Upstream templates (vllm/sglang) are written for live environments; offline replay
-needs three fixes, all applied automatically here:
-  1. datasource references point at ${DS_PROMETHEUS} or some foreign uid -> rebind
-     everything to the local uid
-  2. templates use $__interval / $__rate_interval, which on a few-minute offline span
-     resolves below the scrape interval, leaving rate() with fewer than two points
-     -> inject a per-panel interval floor
-  3. the time range must be pinned to the data's real span, otherwise the dashboard
-     opens at "last 6 hours" and shows nothing
+Upstream dashboards (vllm, sglang) are written for whatever datasource the author
+had, and offline replay adds two more mismatches. All of it is fixed here rather
+than by hand-editing the JSON, so upstream files stay pristine:
+
+  1. every datasource reference is rebound to the local uid
+  2. a per-panel interval floor is injected, because on a few-minute offline span
+     $__interval / $__rate_interval resolve below the scrape interval and leave
+     rate() with fewer than two points per window
+  3. the time range is pinned to the replayed data, else it opens at "last 6 hours",
+     and auto-refresh is switched off since replayed data never changes
 """
-import argparse, json, re
+
+import json
 from datetime import datetime, timezone
-from pathlib import Path
-
-TS = re.compile(r"\s(\d{10,13})\s*$")
 
 
-def bounds_from_om(path):
-    """Scan timestamps in an OpenMetrics file, return (earliest, latest) in ms."""
-    vals = [int(m.group(1)) for line in path.open(errors="replace")
-            if not line.startswith("#") and (m := TS.search(line))]
-    if not vals:
-        raise SystemExit(f"no timestamped samples in {path}")
-    vals = [v if v >= 10**11 else v * 1000 for v in vals]
-    return min(vals), max(vals)
-
-
-def bounds_from_tsdb(path):
-    metas = [json.loads(p.read_text()) for p in path.glob("*/meta.json")]
-    return (min(m["minTime"] for m in metas),
-            max(m["maxTime"] for m in metas)) if metas else None
-
-
-def iso(ms):
-    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat(
-        timespec="milliseconds").replace("+00:00", "Z")
-
-
-def panels(dash):
-    """Walk every panel, including ones nested inside collapsed rows."""
-    stack = list(dash.get("panels", []))
+def _panels(dashboard: dict):
+    """Every panel, including ones nested inside collapsed rows."""
+    stack = list(dashboard.get("panels", []))
     while stack:
-        p = stack.pop()
-        stack += p.get("panels") or []
-        yield p
+        panel = stack.pop()
+        stack += panel.get("panels") or []
+        yield panel
 
 
-def rebind(node, uid):
-    """Repoint datasource references at the local uid (skip the built-in Grafana source)."""
+def _rebind(node, uid: str) -> None:
+    """Point datasource references at `uid`, leaving the built-in Grafana one alone."""
     if isinstance(node, dict):
         ds = node.get("datasource")
         if isinstance(ds, dict) and ds.get("uid") not in (None, "-- Grafana --"):
             ds["uid"] = uid
         elif isinstance(ds, str) and ds != "-- Grafana --":
             node["datasource"] = {"type": "prometheus", "uid": uid}
-        for v in node.values():
-            rebind(v, uid)
+        for value in node.values():
+            _rebind(value, uid)
     elif isinstance(node, list):
-        for v in node:
-            rebind(v, uid)
+        for value in node:
+            _rebind(value, uid)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--template", type=Path, required=True)
-    ap.add_argument("--output", type=Path, required=True)
-    ap.add_argument("--datasource-uid", default="promoffline")
-    ap.add_argument("--min-interval", default="30s")
-    ap.add_argument("--kv-bytes", type=int, default=167_772_160)
-    ap.add_argument("--openmetrics", type=Path)
-    ap.add_argument("--tsdb", type=Path)
-    a = ap.parse_args()
-
-    if a.openmetrics and a.openmetrics.exists():
-        lo, hi = bounds_from_om(a.openmetrics)
-        src = a.openmetrics
-    else:
-        b = a.tsdb and bounds_from_tsdb(a.tsdb)
-        if not b:
-            raise SystemExit("no om file and no TSDB block: cannot determine time range")
-        lo, hi, src = *b, a.tsdb
-
-    dash = json.loads(a.template.read_text())
-    rebind(dash, a.datasource_uid)
-
-    for v in dash.get("templating", {}).get("list", []):
-        if v.get("type") == "datasource":
-            v["current"] = {"text": "Prometheus Offline", "value": a.datasource_uid}
-        # label_values() queries behind template variables need the local source too
-        if isinstance(v.get("datasource"), dict):
-            v["datasource"]["uid"] = a.datasource_uid
-        # KV bytes: only the ptd dashboard declares this variable
-        if v.get("name") == "kv_bytes_per_request":
-            kv = str(a.kv_bytes)
-            v.update(query=kv, current={"selected": True, "text": kv, "value": kv},
-                     options=[{"selected": True, "text": kv, "value": kv}])
-
-    for p in panels(dash):
-        if p.get("type") != "row":
-            p["interval"] = a.min_interval
-
-    dash["time"] = {"from": iso(lo - 15_000), "to": iso(hi + 15_000)}
-    a.output.parent.mkdir(parents=True, exist_ok=True)
-    a.output.write_text(json.dumps(dash, ensure_ascii=False, indent=1) + "\n")
-
-    print(f"  template   : {a.template.name}")
-    print(f"  time range : {dash['time']['from'][:19]} .. {dash['time']['to'][:19]}  (from {Path(src).name})")
-    print(f"DASHBOARD_UID={dash.get('uid', '')}")   # read by run.sh to build the URL; keep last
+def _iso(ms: int) -> str:
+    return (datetime.fromtimestamp(ms / 1000, timezone.utc)
+            .isoformat(timespec="milliseconds").replace("+00:00", "Z"))
 
 
-if __name__ == "__main__":
-    main()
+def render(template, output, datasource_uid="ptd", time_range=None,
+           min_interval=None, kv_bytes=167_772_160) -> str:
+    """Write the adapted dashboard to `output`; returns its uid."""
+    dashboard = json.loads(template.read_text())
+    _rebind(dashboard, datasource_uid)
+
+    for var in dashboard.get("templating", {}).get("list", []):
+        if var.get("type") == "datasource":
+            var["current"] = {"text": "Prometheus", "value": datasource_uid}
+        if isinstance(var.get("datasource"), dict):
+            var["datasource"]["uid"] = datasource_uid
+        # Only the PTD dashboards declare this one.
+        if var.get("name") == "kv_bytes_per_request":
+            value = str(kv_bytes)
+            var.update(query=value,
+                       current={"selected": True, "text": value, "value": value},
+                       options=[{"selected": True, "text": value, "value": value}])
+
+    if min_interval:
+        dashboard["refresh"] = ""
+        for panel in _panels(dashboard):
+            if panel.get("type") != "row":
+                panel["interval"] = min_interval
+
+    if time_range:
+        start, end = time_range
+        dashboard["time"] = {"from": _iso(start - 15_000), "to": _iso(end + 15_000)}
+        print(f"  time range {dashboard['time']['from'][:19]}"
+              f" .. {dashboard['time']['to'][:19]}")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(dashboard, ensure_ascii=False, indent=1) + "\n")
+    return dashboard.get("uid", "")

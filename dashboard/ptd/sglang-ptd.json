@@ -1,0 +1,852 @@
+{
+ "uid": "sglang-pd-offline",
+ "title": "SGLang P/D Offline Replay",
+ "tags": [
+  "sglang",
+  "pd",
+  "offline",
+  "flagcx"
+ ],
+ "timezone": "browser",
+ "editable": true,
+ "schemaVersion": 39,
+ "version": 1,
+ "refresh": "1s",
+ "time": {
+  "from": "now-5m",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "kv_bytes_per_request",
+    "label": "KV bytes/request",
+    "type": "textbox",
+    "query": "167772160",
+    "current": {
+     "selected": true,
+     "text": "167772160",
+     "value": "167772160"
+    },
+    "options": [
+     {
+      "selected": true,
+      "text": "167772160",
+      "value": "167772160"
+     }
+    ],
+    "hide": 0,
+    "skipUrlSync": false
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "timeseries",
+   "title": "Token Throughput - generation (decode side)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 0
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (engine_type) (rate(sglang:generation_tokens_total{engine_type=\"decode\"}[30s]))",
+     "legendFormat": "{{engine_type}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "type": "timeseries",
+   "title": "Token Throughput - prompt (prefill side)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 0
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (engine_type) (rate(sglang:prompt_tokens_total{engine_type=\"prefill\"}[30s]))",
+     "legendFormat": "{{engine_type}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "type": "timeseries",
+   "title": "Running / Waiting (concurrency, not req/s)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (engine_type) (sglang:num_running_reqs)",
+     "legendFormat": "running {{engine_type}}",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum by (engine_type) (sglang:num_queue_reqs)",
+     "legendFormat": "waiting {{engine_type}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "type": "timeseries",
+   "title": "KV Cache Usage",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max by (engine_type) (sglang:token_usage)",
+     "legendFormat": "{{engine_type}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "type": "timeseries",
+   "title": "TTFT Quantiles (prefill)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 16
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"prefill\"}[30s])))",
+     "legendFormat": "p99",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"prefill\"}[30s])))",
+     "legendFormat": "p95",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"prefill\"}[30s])))",
+     "legendFormat": "p50",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "type": "timeseries",
+   "title": "ITL Quantiles (decode)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 16
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p99",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p95",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p50",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "E2E Request Latency Quantiles",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 24
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.99, sum by (le, engine_type) (rate(sglang:e2e_request_latency_seconds_bucket[30s])))",
+     "legendFormat": "p99 {{engine_type}}",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "histogram_quantile(0.5, sum by (le, engine_type) (rate(sglang:e2e_request_latency_seconds_bucket[30s])))",
+     "legendFormat": "p50 {{engine_type}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "Prefix Cache Hit Rate",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 24
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "max by (engine_type) (sglang:cache_hit_rate)",
+     "legendFormat": "{{engine_type}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "P/D Queue Depth",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 32
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(sglang:num_prefill_bootstrap_queue_reqs)",
+     "legendFormat": "prefill bootstrap",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(sglang:num_prefill_inflight_queue_reqs)",
+     "legendFormat": "prefill inflight",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "sum(sglang:num_decode_prealloc_queue_reqs)",
+     "legendFormat": "decode prealloc",
+     "interval": "1s"
+    },
+    {
+     "refId": "D",
+     "expr": "sum(sglang:num_decode_transfer_queue_reqs)",
+     "legendFormat": "decode transfer",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Aborted / Retracted / Retried Requests",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 32
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(sglang:num_aborted_requests_total)",
+     "legendFormat": "aborted",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(sglang:num_retracted_requests_total)",
+     "legendFormat": "retracted",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "sum(sglang:num_prefill_retries_total)",
+     "legendFormat": "prefill retries",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "type": "timeseries",
+   "title": "KV Cache Transfer Throughput (total + per TP rank)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 40
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[5s]))",
+     "legendFormat": "all prefill TP ranks",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum by (tp_rank) (irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[5s]))",
+     "legendFormat": "tp_rank={{tp_rank}}",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "KV Cache Cumulative Bytes Transferred",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 40
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"})",
+     "legendFormat": "KV payload total",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "FlagCX Transfer Latency Quantiles",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 48
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(sglang:flagcx_xfer_time_seconds_bucket{engine_type=\"prefill\"}[30s])))",
+     "legendFormat": "p99",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(sglang:flagcx_xfer_time_seconds_bucket{engine_type=\"prefill\"}[30s])))",
+     "legendFormat": "p95",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "histogram_quantile(0.5, sum by (le) (rate(sglang:flagcx_xfer_time_seconds_bucket{engine_type=\"prefill\"}[30s])))",
+     "legendFormat": "p50",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "FlagCX Effective Link Throughput",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 48
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[30s])) / sum(irate(sglang:flagcx_total_xfer_time_seconds_total{engine_type=\"prefill\"}[30s]))",
+     "legendFormat": "bytes/s while busy",
+     "interval": "1s"
+    }
+   ],
+   "description": "Bytes moved divided by time actually spent inside transfers. Unlike the throughput panel this ignores idle gaps, so it reflects link speed rather than duty cycle."
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "FlagCX Transfer Rate",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 56
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(irate(sglang:flagcx_transfers_total{engine_type=\"prefill\"}[5s]))",
+     "legendFormat": "transfers/s",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(irate(sglang:flagcx_total_descriptors_total{engine_type=\"prefill\"}[5s]))",
+     "legendFormat": "descriptors/s",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "FlagCX Mean Transfer Size",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 56
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(irate(sglang:flagcx_bytes_transferred_sum{engine_type=\"prefill\"}[30s])) / sum(irate(sglang:flagcx_bytes_transferred_count{engine_type=\"prefill\"}[30s]))",
+     "legendFormat": "mean bytes/transfer",
+     "interval": "1s"
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "type": "timeseries",
+   "title": "FlagCX Failures",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 64
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(sglang:flagcx_num_failed_transfers_total)",
+     "legendFormat": "failed transfers (P)",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum(sglang:flagcx_num_failed_recvs_total)",
+     "legendFormat": "failed recvs (D)",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "sum(sglang:flagcx_num_kv_expired_reqs_total)",
+     "legendFormat": "KV expired reqs",
+     "interval": "1s"
+    }
+   ],
+   "description": "All three should stay flat at zero. Any slope means KV transfers are failing or timing out."
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "KV Cache Equivalent Throughput (req/s)",
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 64
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[5s])) / ${kv_bytes_per_request:raw}",
+     "legendFormat": "KV equivalent req/s",
+     "interval": "1s"
+    }
+   ],
+   "description": "Transferred bytes/s divided by the KV bytes/request set at the top. A rough req/s figure for the transfer path, comparable with engine req/s."
+  }
+ ]
+}
