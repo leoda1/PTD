@@ -9,7 +9,7 @@
  "timezone": "browser",
  "editable": true,
  "schemaVersion": 39,
- "version": 1,
+ "version": 2,
  "refresh": "1s",
  "time": {
   "from": "now-5m",
@@ -19,7 +19,7 @@
   "list": [
    {
     "name": "kv_bytes_per_request",
-    "label": "KV bytes/request",
+    "label": "KV bytes/request (0 = unconfigured)",
     "type": "textbox",
     "query": "167772160",
     "current": {
@@ -43,12 +43,12 @@
   {
    "id": 1,
    "type": "timeseries",
-   "title": "Token Throughput - generation (decode side)",
+   "title": "Decode Token Throughput (tok/s)",
    "gridPos": {
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 0
+    "y": 24
    },
    "datasource": {
     "type": "prometheus",
@@ -74,7 +74,7 @@
     {
      "refId": "A",
      "expr": "sum by (instance) (rate(vllm:generation_tokens_total{instance=~\"decode.*\"}[30s]))",
-     "legendFormat": "{{instance}}",
+     "legendFormat": "Decode {{instance}} output tok/s",
      "interval": "1s"
     }
    ]
@@ -82,12 +82,12 @@
   {
    "id": 2,
    "type": "timeseries",
-   "title": "Token Throughput - prompt (prefill side)",
+   "title": "Prefill Token Throughput (tok/s)",
    "gridPos": {
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 0
+    "y": 24
    },
    "datasource": {
     "type": "prometheus",
@@ -113,7 +113,7 @@
     {
      "refId": "A",
      "expr": "sum by (instance) (rate(vllm:prompt_tokens_total{instance=~\"prefill.*\"}[30s]))",
-     "legendFormat": "{{instance}}",
+     "legendFormat": "Prefill {{instance}} input tok/s",
      "interval": "1s"
     }
    ]
@@ -121,10 +121,10 @@
   {
    "id": 3,
    "type": "timeseries",
-   "title": "Running / Waiting (concurrency, not req/s)",
+   "title": "P/D Pipeline Occupancy and Queue Depth (requests, not req/s)",
    "gridPos": {
     "h": 8,
-    "w": 12,
+    "w": 24,
     "x": 0,
     "y": 8
    },
@@ -143,6 +143,7 @@
      "displayMode": "table",
      "placement": "bottom",
      "calcs": [
+      "lastNotNull",
       "max",
       "mean"
      ]
@@ -159,7 +160,8 @@
      "expr": "sum by (instance) (vllm:num_requests_waiting)",
      "legendFormat": "waiting {{instance}}"
     }
-   ]
+   ],
+   "description": "Instantaneous gauges for requests in the Prefill and Decode running batches and waiting queues. These values explain concurrency and backpressure; they are not req/s."
   },
   {
    "id": 4,
@@ -169,7 +171,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 8
+    "y": 48
    },
    "datasource": {
     "type": "prometheus",
@@ -207,7 +209,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 16
+    "y": 32
    },
    "datasource": {
     "type": "prometheus",
@@ -255,7 +257,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 16
+    "y": 32
    },
    "datasource": {
     "type": "prometheus",
@@ -303,7 +305,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 24
+    "y": 40
    },
    "datasource": {
     "type": "prometheus",
@@ -346,7 +348,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 24
+    "y": 40
    },
    "datasource": {
     "type": "prometheus",
@@ -384,7 +386,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 32
+    "y": 56
    },
    "datasource": {
     "type": "prometheus",
@@ -432,7 +434,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 32
+    "y": 56
    },
    "datasource": {
     "type": "prometheus",
@@ -470,7 +472,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 40
+    "y": 16
    },
    "datasource": {
     "type": "prometheus",
@@ -487,6 +489,7 @@
      "displayMode": "table",
      "placement": "bottom",
      "calcs": [
+      "lastNotNull",
       "max",
       "mean"
      ]
@@ -496,7 +499,7 @@
     {
      "refId": "A",
      "expr": "sum(irate(vllm:flagcx_total_bytes_transferred_total{instance=~\"prefill.*\"}[5s]))",
-     "legendFormat": "all prefill engines / TP ranks",
+     "legendFormat": "KV payload total bytes/s",
      "interval": "1s"
     },
     {
@@ -505,7 +508,8 @@
      "legendFormat": "{{instance}} engine={{engine}}",
      "interval": "1s"
     }
-   ]
+   ],
+   "description": "Current KV payload throughput from the monotonic transferred-bytes Counter using irate over 5 seconds. The total is summed across all Prefill instances and logical engines."
   },
   {
    "id": 12,
@@ -514,8 +518,8 @@
    "gridPos": {
     "h": 8,
     "w": 12,
-    "x": 12,
-    "y": 40
+    "x": 0,
+    "y": 48
    },
    "datasource": {
     "type": "prometheus",
@@ -553,7 +557,7 @@
     "h": 8,
     "w": 24,
     "x": 0,
-    "y": 48
+    "y": 0
    },
    "datasource": {
     "type": "prometheus",
@@ -570,6 +574,7 @@
      "displayMode": "table",
      "placement": "bottom",
      "calcs": [
+      "lastNotNull",
       "max",
       "mean"
      ]
@@ -588,18 +593,19 @@
      "legendFormat": "Decode req/s",
      "interval": "1s"
     }
-   ]
+   ],
+   "description": "Current Prefill and Decode completion rates from monotonic successful-request Counters using irate over 5 seconds. Running and waiting gauges are shown separately and are not used as throughput."
   },
   {
    "id": 14,
    "type": "timeseries",
    "title": "KV Cache Equivalent Throughput (req/s)",
-   "description": "KV bytes/request defaults to 167772160 (160 MiB). Derived from transferred-byte delta divided by completed-request delta over the same window.",
+   "description": "Current KV payload bytes/s divided by the configured KV bytes/request, directly comparable with Prefill and Decode req/s. Set KV bytes/request at the top; when it is 0 this panel intentionally returns no data.",
    "gridPos": {
     "h": 8,
-    "w": 24,
-    "x": 0,
-    "y": 56
+    "w": 12,
+    "x": 12,
+    "y": 16
    },
    "datasource": {
     "type": "prometheus",
@@ -616,6 +622,7 @@
      "displayMode": "table",
      "placement": "bottom",
      "calcs": [
+      "lastNotNull",
       "max",
       "mean"
      ]
@@ -624,7 +631,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(irate(vllm:flagcx_total_bytes_transferred_total{instance=~\"prefill.*\"}[5s])) / ${kv_bytes_per_request:raw}",
+     "expr": "(sum(irate(vllm:flagcx_total_bytes_transferred_total{instance=~\"prefill.*\"}[5s])) / ${kv_bytes_per_request:raw}) and on() (vector(${kv_bytes_per_request:raw}) > 0)",
      "legendFormat": "KV equivalent req/s",
      "interval": "1s"
     }
