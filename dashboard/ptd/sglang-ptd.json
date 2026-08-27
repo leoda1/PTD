@@ -10,7 +10,7 @@
  "timezone": "browser",
  "editable": true,
  "schemaVersion": 39,
- "version": 3,
+ "version": 6,
  "refresh": "1s",
  "time": {
   "from": "now-5m",
@@ -75,8 +75,8 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (engine_type) (rate(sglang:generation_tokens_total{engine_type=\"decode\"}[30s]))",
-     "legendFormat": "Decode output tok/s",
+     "expr": "sum by (instance, engine_type) (rate(sglang:generation_tokens_total{engine_type=\"decode\"}[30s]))",
+     "legendFormat": "Decode {{instance}} output tok/s",
      "interval": "1s"
     }
    ]
@@ -114,8 +114,8 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (engine_type) (rate(sglang:prompt_tokens_total{engine_type=\"prefill\"}[30s]))",
-     "legendFormat": "Prefill input tok/s",
+     "expr": "sum by (instance, engine_type) (rate(sglang:prompt_tokens_total{engine_type=\"prefill\"}[30s]))",
+     "legendFormat": "Prefill {{instance}} input tok/s",
      "interval": "1s"
     }
    ]
@@ -154,54 +154,103 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(sglang:num_running_reqs{engine_type=\"prefill\"})",
-     "legendFormat": "Prefill in running batch",
+     "expr": "sum by (instance) (sglang:num_running_reqs{engine_type=\"prefill\"})",
+     "legendFormat": "Prefill {{instance}} in running batch",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "sum(sglang:num_queue_reqs{engine_type=\"prefill\"})",
-     "legendFormat": "Prefill waiting_queue",
+     "expr": "sum by (instance) (sglang:num_queue_reqs{engine_type=\"prefill\"})",
+     "legendFormat": "Prefill {{instance}} waiting_queue",
      "interval": "1s"
     },
     {
      "refId": "C",
-     "expr": "sum(sglang:num_prefill_bootstrap_queue_reqs{engine_type=\"prefill\"})",
-     "legendFormat": "Prefill bootstrap_queue",
+     "expr": "sum by (instance) (sglang:num_prefill_bootstrap_queue_reqs{engine_type=\"prefill\"})",
+     "legendFormat": "Prefill {{instance}} bootstrap_queue",
      "interval": "1s"
     },
     {
      "refId": "D",
-     "expr": "sum(sglang:num_prefill_inflight_queue_reqs{engine_type=\"prefill\"})",
-     "legendFormat": "Prefill inflight_queue",
+     "expr": "sum by (instance) (sglang:num_prefill_inflight_queue_reqs{engine_type=\"prefill\"})",
+     "legendFormat": "Prefill {{instance}} inflight_queue",
      "interval": "1s"
     },
     {
      "refId": "E",
-     "expr": "sum(sglang:num_running_reqs{engine_type=\"decode\"})",
-     "legendFormat": "Decode in running batch",
+     "expr": "sum by (instance) (sglang:num_running_reqs{engine_type=\"decode\"})",
+     "legendFormat": "Decode {{instance}} in running batch",
      "interval": "1s"
     },
     {
      "refId": "F",
-     "expr": "sum(sglang:num_queue_reqs{engine_type=\"decode\"})",
-     "legendFormat": "Decode waiting_queue",
+     "expr": "sum by (instance) (sglang:num_queue_reqs{engine_type=\"decode\"})",
+     "legendFormat": "Decode {{instance}} waiting_queue",
      "interval": "1s"
     },
     {
      "refId": "G",
-     "expr": "sum(sglang:num_decode_prealloc_queue_reqs{engine_type=\"decode\"})",
-     "legendFormat": "Decode prealloc_queue",
+     "expr": "sum by (instance) (sglang:num_decode_prealloc_queue_reqs{engine_type=\"decode\"})",
+     "legendFormat": "Decode {{instance}} prealloc_queue",
      "interval": "1s"
     },
     {
      "refId": "H",
-     "expr": "sum(sglang:num_decode_transfer_queue_reqs{engine_type=\"decode\"})",
-     "legendFormat": "Decode transfer_queue",
+     "expr": "sum by (instance) (sglang:num_decode_transfer_queue_reqs{engine_type=\"decode\"})",
+     "legendFormat": "Decode {{instance}} transfer_queue",
      "interval": "1s"
     }
    ],
    "description": "Instantaneous gauges for requests in the running batch and each P/D queue. These values explain concurrency and backpressure; they must not be differentiated or interpreted as req/s."
+  },
+  {
+   "id": 4,
+   "type": "timeseries",
+   "title": "Current KV Cache Usage by Instance",
+   "gridPos": {
+    "h": 8,
+    "w": 24,
+    "x": 0,
+    "y": 48
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "promoffline"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "min": 0,
+     "max": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max",
+      "mean"
+     ]
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "(max by (instance, engine_type) (sglang:kv_used_tokens) + max by (instance, engine_type) (sglang:kv_evictable_tokens)) / max by (instance, engine_type) (sglang:max_total_num_tokens)",
+     "legendFormat": "Occupied {{instance}}",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "max by (instance, engine_type) (sglang:kv_used_tokens) / max by (instance, engine_type) (sglang:max_total_num_tokens)",
+     "legendFormat": "Active {{instance}}",
+     "interval": "1s"
+    }
+   ],
+   "description": "Per-instance KV occupancy derived from raw SGLang gauges. Occupied = (active used tokens + evictable cached tokens) / total capacity; Active excludes evictable prefix-cache entries."
   },
   {
    "id": 5,
@@ -236,20 +285,20 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.99, sum by (le) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"decode\"}[30s])))",
-     "legendFormat": "p99",
+     "expr": "histogram_quantile(0.99, sum by (le, instance) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p99 {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "histogram_quantile(0.95, sum by (le) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"decode\"}[30s])))",
-     "legendFormat": "p95",
+     "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p95 {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "C",
-     "expr": "histogram_quantile(0.5, sum by (le) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"decode\"}[30s])))",
-     "legendFormat": "p50",
+     "expr": "histogram_quantile(0.5, sum by (le, instance) (rate(sglang:time_to_first_token_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p50 {{instance}}",
      "interval": "1s"
     }
    ],
@@ -288,20 +337,20 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.99, sum by (le) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
-     "legendFormat": "p99",
+     "expr": "histogram_quantile(0.99, sum by (le, instance) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p99 {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "histogram_quantile(0.95, sum by (le) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
-     "legendFormat": "p95",
+     "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p95 {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "C",
-     "expr": "histogram_quantile(0.5, sum by (le) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
-     "legendFormat": "p50",
+     "expr": "histogram_quantile(0.5, sum by (le, instance) (rate(sglang:inter_token_latency_seconds_bucket{engine_type=\"decode\"}[30s])))",
+     "legendFormat": "p50 {{instance}}",
      "interval": "1s"
     }
    ]
@@ -339,14 +388,14 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.99, sum by (le, engine_type) (rate(sglang:e2e_request_latency_seconds_bucket[30s])))",
-     "legendFormat": "p99 {{engine_type}}",
+     "expr": "histogram_quantile(0.99, sum by (le, instance, engine_type) (rate(sglang:e2e_request_latency_seconds_bucket[30s])))",
+     "legendFormat": "p99 {{engine_type}} {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "histogram_quantile(0.5, sum by (le, engine_type) (rate(sglang:e2e_request_latency_seconds_bucket[30s])))",
-     "legendFormat": "p50 {{engine_type}}",
+     "expr": "histogram_quantile(0.5, sum by (le, instance, engine_type) (rate(sglang:e2e_request_latency_seconds_bucket[30s])))",
+     "legendFormat": "p50 {{engine_type}} {{instance}}",
      "interval": "1s"
     }
    ]
@@ -384,8 +433,8 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "max by (engine_type) (sglang:cache_hit_rate)",
-     "legendFormat": "{{engine_type}}",
+     "expr": "max by (instance, engine_type) (sglang:cache_hit_rate)",
+     "legendFormat": "{{engine_type}} {{instance}}",
      "interval": "1s"
     }
    ]
@@ -396,9 +445,9 @@
    "title": "Aborted / Retracted / Bootstrap-Failed Requests",
    "gridPos": {
     "h": 8,
-    "w": 12,
+    "w": 24,
     "x": 0,
-    "y": 48
+    "y": 56
    },
    "datasource": {
     "type": "prometheus",
@@ -423,20 +472,20 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(sglang:num_aborted_requests_total)",
-     "legendFormat": "aborted",
+     "expr": "sum by (instance) (sglang:num_aborted_requests_total)",
+     "legendFormat": "aborted {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "sum(sglang:num_retracted_reqs)",
-     "legendFormat": "retracted",
+     "expr": "sum by (instance) (sglang:num_retracted_reqs)",
+     "legendFormat": "retracted {{instance}}",
      "interval": "1s"
     },
     {
      "refId": "C",
-     "expr": "sum(sglang:num_bootstrap_failed_reqs_total)",
-     "legendFormat": "bootstrap failed",
+     "expr": "sum by (instance) (sglang:num_bootstrap_failed_reqs_total)",
+     "legendFormat": "bootstrap failed {{instance}}",
      "interval": "1s"
     }
    ]
@@ -475,18 +524,18 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[5s]))",
+     "expr": "sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[15s]))",
      "legendFormat": "KV payload total bytes/s",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "sum by (tp_rank) (irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[5s]))",
-     "legendFormat": "tp_rank={{tp_rank}}",
+     "expr": "sum by (instance, tp_rank) (irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[15s]))",
+     "legendFormat": "{{instance}} tp_rank={{tp_rank}}",
      "interval": "1s"
     }
    ],
-   "description": "Current KV payload throughput from the monotonic transferred-bytes Counter using irate over 5 seconds. The total is summed across all Prefill TP ranks; per-rank lines help identify imbalance."
+   "description": "Current KV payload throughput from the monotonic transferred-bytes Counter using irate over 15 seconds. irate still uses only the last two samples; the wider range safely accommodates 5-second captures. The total is summed across all Prefill TP ranks."
   },
   {
    "id": 12,
@@ -494,9 +543,9 @@
    "title": "KV Cache Cumulative Bytes Transferred",
    "gridPos": {
     "h": 8,
-    "w": 12,
-    "x": 12,
-    "y": 48
+    "w": 24,
+    "x": 0,
+    "y": 64
    },
    "datasource": {
     "type": "prometheus",
@@ -524,6 +573,12 @@
      "refId": "A",
      "expr": "sum(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"})",
      "legendFormat": "KV payload total",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum by (instance) (sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"})",
+     "legendFormat": "KV payload {{instance}}",
      "interval": "1s"
     }
    ]
@@ -562,18 +617,30 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(irate(sglang:num_requests_total{engine_type=\"prefill\"}[5s]))",
-     "legendFormat": "Prefill req/s",
+     "expr": "sum(irate(sglang:num_requests_total{engine_type=\"prefill\"}[15s]))",
+     "legendFormat": "Prefill total req/s",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "sum(irate(sglang:num_requests_total{engine_type=\"decode\"}[5s]))",
-     "legendFormat": "Decode req/s",
+     "expr": "sum by (instance) (irate(sglang:num_requests_total{engine_type=\"prefill\"}[15s]))",
+     "legendFormat": "Prefill {{instance}} req/s",
+     "interval": "1s"
+    },
+    {
+     "refId": "C",
+     "expr": "sum(irate(sglang:num_requests_total{engine_type=\"decode\"}[15s]))",
+     "legendFormat": "Decode total req/s",
+     "interval": "1s"
+    },
+    {
+     "refId": "D",
+     "expr": "sum by (instance) (irate(sglang:num_requests_total{engine_type=\"decode\"}[15s]))",
+     "legendFormat": "Decode {{instance}} req/s",
      "interval": "1s"
     }
    ],
-   "description": "Current stage completion rates from the monotonic SGLang completed-request Counter. Prefill and Decode are summed independently across workers; running and queue gauges are shown separately below and are not used as throughput."
+   "description": "Current completion rates from the monotonic SGLang request Counter using irate over 15 seconds. The panel shows Prefill/Decode totals plus one curve per instance, so multi-P/multi-D load distribution remains visible."
   },
   {
    "id": 14,
@@ -583,7 +650,7 @@
     "h": 8,
     "w": 12,
     "x": 0,
-    "y": 56
+    "y": 72
    },
    "datasource": {
     "type": "prometheus",
@@ -610,7 +677,13 @@
     {
      "refId": "A",
      "expr": "sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[30s])) / sum(irate(sglang:flagcx_total_xfer_time_seconds_total{engine_type=\"prefill\"}[30s]))",
-     "legendFormat": "bytes/s while busy",
+     "legendFormat": "total bytes/s while busy",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "sum by (instance) (irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[30s])) / sum by (instance) (irate(sglang:flagcx_total_xfer_time_seconds_total{engine_type=\"prefill\"}[30s]))",
+     "legendFormat": "{{instance}} bytes/s while busy",
      "interval": "1s"
     }
    ],
@@ -624,7 +697,7 @@
     "h": 8,
     "w": 12,
     "x": 12,
-    "y": 56
+    "y": 72
    },
    "datasource": {
     "type": "prometheus",
@@ -649,14 +722,14 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(irate(sglang:flagcx_transfers_total{engine_type=\"prefill\"}[5s]))",
-     "legendFormat": "transfers/s",
+     "expr": "sum by (instance) (irate(sglang:flagcx_transfers_total{engine_type=\"prefill\"}[15s]))",
+     "legendFormat": "{{instance}} transfers/s",
      "interval": "1s"
     },
     {
      "refId": "B",
-     "expr": "sum(irate(sglang:flagcx_total_descriptors_total{engine_type=\"prefill\"}[5s]))",
-     "legendFormat": "descriptors/s",
+     "expr": "sum by (instance) (irate(sglang:flagcx_total_descriptors_total{engine_type=\"prefill\"}[15s]))",
+     "legendFormat": "{{instance}} descriptors/s",
      "interval": "1s"
     }
    ]
@@ -669,7 +742,7 @@
     "h": 8,
     "w": 24,
     "x": 0,
-    "y": 64
+    "y": 80
    },
    "datasource": {
     "type": "prometheus",
@@ -694,8 +767,8 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(irate(sglang:flagcx_bytes_transferred_sum{engine_type=\"prefill\"}[30s])) / sum(irate(sglang:flagcx_bytes_transferred_count{engine_type=\"prefill\"}[30s]))",
-     "legendFormat": "mean bytes/transfer",
+     "expr": "sum by (instance) (irate(sglang:flagcx_bytes_transferred_sum{engine_type=\"prefill\"}[30s])) / sum by (instance) (irate(sglang:flagcx_bytes_transferred_count{engine_type=\"prefill\"}[30s]))",
+     "legendFormat": "{{instance}} mean bytes/transfer",
      "interval": "1s"
     }
    ]
@@ -734,8 +807,14 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "(sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[5s])) / ${kv_bytes_per_request:raw}) and on() (vector(${kv_bytes_per_request:raw}) > 0)",
-     "legendFormat": "KV equivalent req/s",
+     "expr": "(sum(irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[15s])) / ${kv_bytes_per_request:raw}) and on() (vector(${kv_bytes_per_request:raw}) > 0)",
+     "legendFormat": "KV total equivalent req/s",
+     "interval": "1s"
+    },
+    {
+     "refId": "B",
+     "expr": "(sum by (instance) (irate(sglang:flagcx_total_bytes_transferred_total{engine_type=\"prefill\"}[15s])) / ${kv_bytes_per_request:raw}) and on() (vector(${kv_bytes_per_request:raw}) > 0)",
+     "legendFormat": "KV {{instance}} equivalent req/s",
      "interval": "1s"
     }
    ],

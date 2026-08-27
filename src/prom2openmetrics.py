@@ -87,9 +87,56 @@ def convert(inputs, output) -> tuple[int, int]:
     return start * 1000, end * 1000
 
 
-if __name__ == "__main__":
+def _cli(argv) -> None:
     from pathlib import Path
-    if len(sys.argv) != 4:
-        sys.exit("usage: prom2openmetrics.py <prefill.log> <decode.log> <out.txt>")
-    prefill, decode, out = (Path(a) for a in sys.argv[1:])
-    convert([(prefill, "prefill"), (decode, "decode")], out)
+
+    args = argv[1:]
+    output_flags = [i for i, arg in enumerate(args) if arg in ("-o", "--output")]
+    if len(output_flags) > 1:
+        sys.exit("-o/--output may only be specified once")
+
+    if output_flags:
+        index = output_flags[0]
+        if index + 1 >= len(args):
+            sys.exit("-o/--output requires a path")
+        out = Path(args[index + 1])
+        args = args[:index] + args[index + 2:]
+    else:
+        if len(args) < 3:
+            sys.exit(
+                "usage:\n"
+                "  prom2openmetrics.py <prefill.log> <decode.log> -o <out.txt>\n"
+                "  prom2openmetrics.py <instance>=<log> [...] -o <out.txt>"
+            )
+        out = Path(args.pop())
+
+    if len(args) == 2 and all("=" not in arg for arg in args):
+        prefill, decode = (Path(arg) for arg in args)
+        convert([(prefill, "prefill"), (decode, "decode")], out)
+        return
+
+    if not args:
+        sys.exit(
+            "usage:\n"
+            "  prom2openmetrics.py <prefill.log> <decode.log> -o <out.txt>\n"
+            "  prom2openmetrics.py <instance>=<log> [...] -o <out.txt>"
+        )
+
+    inputs = []
+    instances = set()
+    for spec in args:
+        if "=" not in spec:
+            sys.exit(f"invalid input {spec!r}; expected <instance>=<log>")
+        instance, path_arg = spec.split("=", 1)
+        if not instance or not path_arg:
+            sys.exit(f"invalid input {spec!r}; instance and log must be non-empty")
+        if instance in instances:
+            sys.exit(f"duplicate instance {instance!r}; every log needs a unique label")
+        instances.add(instance)
+        inputs.append((Path(path_arg), instance))
+
+    convert(inputs, out)
+
+
+if __name__ == "__main__":
+    _cli(sys.argv)

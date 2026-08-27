@@ -1,67 +1,71 @@
-# PTD — Prometheus + Grafana for vLLM / SGLang
+# PTD
 
-PTD ships two P/D dashboards with FlagCX KV transfer panels, in two modes.
+Run all commands from the PTD repository root. Grafana: <http://localhost:3000>. Prometheus: <http://localhost:9090>.
 
-## Offline
+## Offline replay
 
-Replay snapshots captured earlier. Nothing is scraped, works anywhere including macOS.
-
-```bash
-cd dashboard/ptd
-PREFILL="$(realpath ../../log/prefill.prom.log)" DECODE="$(realpath ../../log/decode.prom.log)" DASH=ptd-vllm docker compose up -d
-PREFILL="$(realpath ../../log/prefill.prom.log)" DECODE="$(realpath ../../log/decode.prom.log)" DASH=ptd-sglang docker compose up -d
-OPENMETRICS="$(realpath ../../log/om-0824.txt)" DASH=ptd-vllm docker compose up -d
-```
-
-Prometheus is on <http://localhost:9090> and grafana is on <http://localhost:3000>
-
-## Online
-
-Scrape running servers. Uses host networking, so **Linux only**.
+`PREFILL` and `DECODE` accept paths relative to the PTD root or absolute paths inside PTD. Separate multiple instances with commas:
 
 ```bash
-cd dashboard/ptd
-DASH=ptd-vllm TARGETS=127.0.0.1:8000,127.0.0.1:8001 docker compose --profile online up -d
-DASH=ptd-sglang TARGETS=127.0.0.1:8000,127.0.0.1:8001 docker compose --profile online up -d
+PREFILL='log/my-run/prefill.prom.log' \
+DECODE='log/my-run/decode-1.prom.log,log/my-run/decode-2.prom.log' \
+DASH=ptd-sglang \
+docker compose up -d
 ```
 
-One `TARGETS` entry per instance. Servers need `--enable-metrics`.
+Using absolute paths:
 
+```bash
+PREFILL="$PWD/log/prefill.prom.log" \
+DECODE="$PWD/log/decode.prom.log" \
+DASH=ptd-sglang \
+docker compose up -d
+```
 
-Prometheus is on <http://localhost:9090>. Without `-d` the terminal fills with the
-containers' own logs, which is why the examples use it.
+### Convert logs to OpenMetrics
 
-The upstream dashboards live in `dashboard/vllm/` and `dashboard/sglang/`, each with
-its own compose stack.
+Convert one Prefill and one Decode log to a `.txt` file:
 
-## Dashboards
+```bash
+python3 src/prom2openmetrics.py \
+  'log/my-run/prefill.prom.log' \
+  'log/my-run/decode.prom.log' \
+  -o 'log/my-run/openmetrics.txt'
+```
 
-| `DASH` | Dashboard |
+For multiple P/D instances, assign a unique instance name to every log:
+
+```bash
+python3 src/prom2openmetrics.py \
+  'prefill-1=log/my-run/prefill-1.prom.log' \
+  'prefill-2=log/my-run/prefill-2.prom.log' \
+  'decode-1=log/my-run/decode-1.prom.log' \
+  'decode-2=log/my-run/decode-2.prom.log' \
+  -o 'log/my-run/openmetrics.txt'
+```
+
+Replay the converted file:
+
+```bash
+OPENMETRICS="$PWD/log/my-run/openmetrics.txt" \
+DASH=ptd-sglang \
+docker compose up -d
+```
+
+After one successful replay, `docker compose up -d` reuses the latest data.
+
+## DASH
+
+| Value | Dashboard |
 |---|---|
-| `ptd-vllm` | vLLM P/D dashboard, includes FlagCX KV transfer panels |
-| `ptd-sglang` | SGLang P/D dashboard, includes FlagCX KV transfer panels |
+| `ptd-sglang` | SGLang P/D offline/online dashboard |
+| `ptd-vllm` | vLLM P/D offline/online dashboard |
+| `sglang` | Native SGLang live dashboard |
+| `vllm` | Native vLLM live dashboard |
 
-The FlagCX panels need the metrics from `sglang-plugin-fl`
-(`sglang_fl/disaggregation/stats.py`) or the equivalent vLLM connector. Engine-side
-panels work without them; the FlagCX ones stay empty.
-
-`KV_BYTES` (default 167772160, i.e. 160 MiB) is the KV cache size per request, used
-to convert transferred bytes into an equivalent req/s. PTD dashboards only.
-
-## Layout
-
+```bash
+DASH=sglang docker compose up -d
+DASH=vllm docker compose up -d
 ```
-dashboard/ptd/
-  docker-compose.yml    both modes; online behind --profile online
-  offline.yml           Prometheus config for replay (nothing is scraped)
-  vllm-ptd.json         own vLLM P/D dashboard
-  sglang-ptd.json       own SGLang P/D dashboard
-dashboard/vllm/     vLLM upstream files, kept pristine
-dashboard/sglang/   SGLang upstream files, kept pristine
-src/
-  prepare.py            convert logs + render dashboard
-  prom2openmetrics.py   snapshot logs -> OpenMetrics
-  render_dashboard.py   template -> dashboard Grafana can load
-log/                the two capture files
-build/              everything generated; delete it freely
-```
+
+See [examples](examples/) for metric capture and online monitoring.

@@ -10,3 +10,5 @@ __pycache__/
 # Captured logs are large and one-off; keep log/README.md
 log/*.log
 log/*.txt
+log/**/*.log
+log/**/*.txt
