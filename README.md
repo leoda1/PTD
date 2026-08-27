@@ -25,7 +25,7 @@ DASH=ptd-sglang \
 docker compose up -d
 ```
 
-> U can find these logs in our release to perform simple tests.
+> U can find these logs in `PTD/log/logs-0827.tar.gz`.
 
 ### Convert logs to OpenMetrics(option)
 

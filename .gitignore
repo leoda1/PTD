@@ -2,7 +2,6 @@
 build/
 
 # Editors / tooling
-.claude/
 .vscode/
 __pycache__/
 .DS_Store
