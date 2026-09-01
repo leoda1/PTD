@@ -25,6 +25,8 @@ DASH=ptd-sglang \
 docker compose up -d
 ```
 
+Run all commands from the PTD repository root. Grafana: <http://localhost:3000>. Prometheus: <http://localhost:9090>.
+
 > U can find these logs in `PTD/log/logs-0827.tar.gz`.
 
 ### Convert logs to OpenMetrics(option)
