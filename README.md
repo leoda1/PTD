@@ -1,3 +1,5 @@
+# Copyright (c) 2026 BAAI. All rights reserved.
+
 # PTD(Prefill-Transfer-Decode Profiler Tool)
 
 1. Request throughput for the "Prefill" phase: Observe the number of requests completed by the system every 5 seconds (accounting for the impact of batching).
@@ -28,6 +30,12 @@ docker compose up -d
 Run all commands from the PTD repository root. Grafana: <http://localhost:3000>. Prometheus: <http://localhost:9090>.
 
 > U can find these logs in `PTD/log/logs-0827.tar.gz`.
+
+Captures must include timestamp headers and the servers must expose `/metrics`:
+
+```text
+# ==== 1787818207 2026-08-27T16:10:07+08:00 ====
+```
 
 ### Convert logs to OpenMetrics(option)
 
