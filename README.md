@@ -1,77 +1,62 @@
-# Copyright (c) 2026 BAAI. All rights reserved.
+# PTD: Prefill-Transfer-Decode Profiler Tool
 
-# PTD(Prefill-Transfer-Decode Profiler Tool)
+Copyright (c) 2026 BAAI. All rights reserved.
 
-1. Request throughput for the "Prefill" phase: Observe the number of requests completed by the system every 5 seconds (accounting for the impact of batching).
+Grafana dashboards for SGLang/vLLM P/D throughput, queues, latency and transfer
+metrics. Requires Docker Compose. Run commands from the repository root.
 
-2. Aggregate request throughput across all RNICs: Every 5 seconds, observe the total bytes copied—calculated based on all engine processes and the default copy threads within each process. For accurate results, configure your benchmark test (e.g., `bench serve`) with 1,000–2,000 requests, each featuring an 8K input and 1K output. You can then derive the aggregate request throughput (req/s) handled by all RNICs by dividing the total KV cache data transferred by the number of requests. See Figure 1.
+## Live View: Existing Prometheus
 
-3. Request throughput for the "Decode" phase: Observe the number of requests completed by the system every 5 seconds (accounting for the impact of batching).
-
-![Figure1](images/kv-transfer-bw-to-reqs.png)
-
-Here are tests results on vLLM/sglang within the xpyd disaggregation, allowing for the rapid identification of the slowest component in the system.
-![alt text](images/sglang-ptd-analysis.png)
-![alt text](images/vllm-ptd-analysis.png)
-
-
-## Getting Started(offline)
-
-`PREFILL` and `DECODE` accept paths relative to the PTD root or absolute paths inside PTD. Separate multiple instances with commas:
+Forward the server's Prometheus port to local `127.0.0.1:9090`, then start Grafana:
 
 ```bash
-cd  PTD
-PREFILL='log/my-run/prefill.prom.log' \
-DECODE='log/my-run/decode-1.prom.log,log/my-run/decode-2.prom.log' \
-DASH=ptd-sglang \
-docker compose up -d
+docker compose up -d grafana-external
 ```
 
-Run all commands from the PTD repository root. Grafana: <http://localhost:3000>. Prometheus: <http://localhost:9090>.
+Open <http://localhost:3000> and keep the tunnel running. Override
+`PROMETHEUS_URL` if needed (default: `http://host.docker.internal:9090`).
+Stop with `docker compose stop grafana-external`.
 
-> U can find these logs in `PTD/log/logs-0827.tar.gz`.
+The SGLang live dashboard includes Mooncake/Starbridge engine, batch and request
+KV metrics. Enable `--enable-metrics --enable-metrics-for-all-schedulers` on the
+servers. Engine/batch panels require the corresponding SGLang instrumentation;
+missing metrics appear as no data. Batch bandwidth is per-call throughput;
+request KV speed uses all chunks' payload but only the last chunk's transfer time.
 
-Captures must include timestamp headers and the servers must expose `/metrics`:
+## Offline Replay
+
+Provide both prefill and decode captures; separate multiple files with commas:
+
+```bash
+PREFILL=log/my-run/prefill.prom.log \
+DECODE=log/my-run/decode-1.prom.log,log/my-run/decode-2.prom.log \
+DASH=ptd-sglang docker compose up -d
+```
+
+Or replay an existing OpenMetrics file:
+
+```bash
+OPENMETRICS=log/my-run/openmetrics.txt DASH=ptd-sglang docker compose up -d
+```
+
+Grafana: <http://localhost:3000>. Prometheus: <http://localhost:9090>.
+Use `GF_PORT` / `PROM_PORT` to avoid port conflicts. Unchanged inputs reuse the
+TSDB cache. Stop with `docker compose down`.
+
+Captures must contain `/metrics` output with timestamp headers:
 
 ```text
 # ==== 1787818207 2026-08-27T16:10:07+08:00 ====
 ```
 
-### Convert logs to OpenMetrics(option)
+## Dashboard Selection
 
-For multiple P/D instances, assign a unique instance name to every log:
-
-```bash
-python3 src/prom2openmetrics.py \
-  'prefill-1=log/my-run/prefill-1.prom.log' \
-  'prefill-2=log/my-run/prefill-2.prom.log' \
-  'decode-1=log/my-run/decode-1.prom.log' \
-  'decode-2=log/my-run/decode-2.prom.log' \
-  -o 'log/my-run/openmetrics.txt'
-```
-
-Replay the converted file:
-
-```bash
-OPENMETRICS="$PWD/log/my-run/openmetrics.txt" \
-DASH=ptd-sglang \
-docker compose up -d
-```
-
-After one successful replay, `docker compose up -d` reuses the latest data.
-
-## DASH
-
-| Value | Dashboard |
+| `DASH` | Dashboard |
 |---|---|
-| `ptd-sglang` | SGLang P/D offline/online dashboard |
-| `ptd-vllm` | vLLM P/D offline/online dashboard |
-| `sglang` | Native SGLang live dashboard |
-| `vllm` | Native vLLM live dashboard |
+| `ptd-sglang` (default) | SGLang P/D |
+| `ptd-vllm` | vLLM P/D |
+| `sglang` | Native SGLang live stack (Linux) |
+| `vllm` | Native vLLM live stack (Linux) |
 
-```bash
-DASH=sglang docker compose up -d
-DASH=vllm docker compose up -d
-```
-
-See [examples](examples/) for online monitoring.
+See [examples](examples/) for live scraping and
+[the converter](src/prom2openmetrics.py) for capture-to-OpenMetrics conversion.

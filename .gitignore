@@ -5,6 +5,10 @@ build/
 .vscode/
 __pycache__/
 .DS_Store
+.Codex/
+.codex/
+.claude/
+AGENTS.md
 
 # Captured logs are large and one-off; keep log/README.md
 log/*.log

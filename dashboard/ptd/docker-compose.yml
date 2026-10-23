@@ -122,6 +122,37 @@ services:
       <<: *grafana_env
       GF_SERVER_HTTP_PORT: ${GF_PORT:-3000}
 
+  prepare-external:
+    profiles: [external]
+    image: python:3.12-slim
+    working_dir: /ptd
+    command: python3 src/prepare.py
+    volumes:
+      - ../..:/ptd
+    environment:
+      DASH: ${DASH:-ptd-sglang}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://host.docker.internal:9090}
+      PTD_BUILD_DIR: build/external
+      GF_PORT: ${GF_PORT:-3000}
+
+  grafana-external:
+    profiles: [external]
+    image: grafana/grafana:latest
+    depends_on:
+      prepare-external:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${GF_PORT:-3000}:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../../build/external/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../build/external/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_external_data:/var/lib/grafana
+    environment:
+      <<: *grafana_env
+
 volumes:
   prometheus_data:
   grafana_data:
+  grafana_external_data:

@@ -4,11 +4,13 @@
 
 import json
 import os
+import re
 import shutil
 import sys
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -16,7 +18,7 @@ from prom2openmetrics import bounds, convert
 from render_dashboard import render
 
 ROOT = Path(__file__).resolve().parent.parent
-BUILD = ROOT / "build"
+BUILD = ROOT / os.environ.get("PTD_BUILD_DIR", "build")
 
 DASHBOARDS = {
     "ptd-vllm":   "dashboard/ptd/vllm-ptd.json",
@@ -114,20 +116,63 @@ def _detect_dashboard(om: Path) -> str:
     return found.pop()
 
 
+def label_instances(dashboard_path: Path, url: str) -> None:
+    mapping_path = BUILD / "instance-names.json"
+    mapping = json.loads(mapping_path.read_text()) if mapping_path.exists() else {}
+    query = "count by (instance, engine_type) (sglang:num_running_reqs)"
+    endpoint = url.rstrip("/") + "/api/v1/query?" + urllib.parse.urlencode({"query": query})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(endpoint, timeout=5) as response:
+            result = json.load(response)
+        if result.get("status") != "success":
+            raise ValueError("Prometheus query failed")
+        instances = sorted({(r["metric"]["engine_type"], r["metric"]["instance"])
+                            for r in result["data"]["result"]})
+        for role, instance in instances:
+            if role not in ("prefill", "decode") or instance in mapping:
+                continue
+            index = 1
+            while f"{role} {index}" in mapping.values():
+                index += 1
+            mapping[instance] = f"{role} {index}"
+        mapping_path.write_text(json.dumps(mapping, indent=2) + "\n")
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"Instance discovery unavailable; using saved names: {exc}")
+
+    dashboard = json.loads(dashboard_path.read_text())
+    for panel in dashboard["panels"]:
+        panel.setdefault("transformations", []).extend(
+            {"id": "renameByRegex", "options": {
+                "regex": "^(.*)" + re.escape(instance) + "(.*)$",
+                "renamePattern": "$1" + name + "$2",
+            }} for instance, name in sorted(mapping.items())
+        )
+    dashboard_path.write_text(json.dumps(dashboard, indent=1) + "\n")
+
+
 def main() -> None:
     dash = os.environ.get("DASH", "").strip()
     if dash and dash not in DASHBOARDS:
         sys.exit(f"unknown DASH={dash!r}, pick one of: {' | '.join(DASHBOARDS)}")
 
-    gf = BUILD / "grafana"
-    shutil.rmtree(gf, ignore_errors=True)
-    for sub in ("dashboards", "provisioning/dashboards", "provisioning/datasources"):
-        (gf / sub).mkdir(parents=True)
-
+    prometheus_url = os.environ.get("PROMETHEUS_URL", "").strip()
     targets = [t.strip() for t in os.environ.get("TARGETS", "").split(",") if t.strip()]
+    if prometheus_url and targets:
+        sys.exit("PROMETHEUS_URL and TARGETS cannot be used together")
+
+    gf = BUILD / "grafana"
+    if not prometheus_url:
+        shutil.rmtree(gf, ignore_errors=True)
+    for sub in ("dashboards", "provisioning/dashboards", "provisioning/datasources"):
+        (gf / sub).mkdir(parents=True, exist_ok=True)
+
     time_range = None
 
-    if targets:
+    if prometheus_url:
+        dash = dash or "ptd-sglang"
+        print(f"using existing Prometheus: {prometheus_url}")
+    elif targets:
         dash = dash or "ptd-sglang"
         (BUILD / "prometheus.yml").write_text(
             "global:\n"
@@ -199,18 +244,21 @@ def main() -> None:
         output=gf / "dashboards/current.json",
         datasource_uid="ptd",
         time_range=time_range,
-        min_interval=None if targets else "30s",
+        min_interval=None if targets or prometheus_url else "30s",
         kv_bytes=int(os.environ.get("KV_BYTES", 167_772_160)),
+        transfer_engine=bool(prometheus_url) and dash == "ptd-sglang",
     )
 
-    url = "http://127.0.0.1:9090" if targets else "http://prometheus:9090"
+    url = prometheus_url or ("http://127.0.0.1:9090" if targets else "http://prometheus:9090")
+    if prometheus_url and dash == "ptd-sglang":
+        label_instances(gf / "dashboards/current.json", prometheus_url)
     (gf / "provisioning/datasources/prom.yaml").write_text(
         "apiVersion: 1\n"
         "datasources:\n"
         "  - name: Prometheus\n"
         "    type: prometheus\n"
         "    uid: ptd\n"
-        f"    url: {url}\n"
+        f"    url: {json.dumps(url)}\n"
         "    isDefault: true\n"
     )
     (gf / "provisioning/dashboards/dash.yaml").write_text(
@@ -223,7 +271,7 @@ def main() -> None:
     )
     print()
     print(f"  Grafana     http://localhost:{os.environ.get('GF_PORT', '3000')}")
-    print(f"  Prometheus  http://localhost:{os.environ.get('PROM_PORT', '9090')}")
+    print(f"  Prometheus  {url if prometheus_url else 'http://localhost:' + os.environ.get('PROM_PORT', '9090')}")
 
 
 if __name__ == "__main__":

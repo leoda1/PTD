@@ -16,6 +16,7 @@ than by hand-editing the JSON, so upstream files stay pristine:
 
 import json
 from datetime import datetime, timezone
+from transfer_dashboard import adapt_transfer_panels
 
 
 def _panels(dashboard: dict):
@@ -48,9 +49,11 @@ def _iso(ms: int) -> str:
 
 
 def render(template, output, datasource_uid="ptd", time_range=None,
-           min_interval=None, kv_bytes=167_772_160) -> str:
+           min_interval=None, kv_bytes=167_772_160, transfer_engine=False) -> str:
     """Write the adapted dashboard to `output`; returns its uid."""
     dashboard = json.loads(template.read_text())
+    if transfer_engine:
+        adapt_transfer_panels(dashboard)
     _rebind(dashboard, datasource_uid)
 
     for var in dashboard.get("templating", {}).get("list", []):
